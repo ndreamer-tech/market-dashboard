@@ -1,59 +1,64 @@
 """
-Market Dashboard - Flask Backend
-실행: python app.py
-접속: http://localhost:5000
+Market Dashboard - Flask Backend (수정판)
+yfinance 제거, Yahoo Finance API 직접 호출
 """
 
 from flask import Flask, jsonify, send_from_directory
 from flask_cors import CORS
-import yfinance as yf
 import requests
 from datetime import datetime
-import json, os, time
+import time, os
 
 app = Flask(__name__, static_folder="static")
 CORS(app)
 
-# ── 캐시 (같은 날 여러 번 요청해도 API 1회만 호출) ──────────
 _cache = {"data": None, "ts": 0}
-CACHE_SEC = 600  # 10분 캐시
+CACHE_SEC = 600
 
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "application/json",
+}
 
-def safe_get(ticker, period="5d", key="Close"):
+def fetch_yahoo(symbol):
     try:
-        hist = yf.Ticker(ticker).history(period=period)
-        if hist.empty:
-            return None
-        return float(hist[key].dropna().iloc[-1])
-    except:
-        return None
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+        params = {"interval": "1d", "range": "5d"}
+        r = requests.get(url, params=params, headers=HEADERS, timeout=10)
+        data = r.json()
+        closes = data["chart"]["result"][0]["indicators"]["quote"][0]["close"]
+        closes = [c for c in closes if c is not None]
+        if len(closes) < 2:
+            return None, None
+        chg = (closes[-1] - closes[0]) / closes[0] * 100
+        return round(closes[-1], 2), round(chg, 2)
+    except Exception as e:
+        print(f"  [오류] {symbol}: {e}")
+        return None, None
 
-
-def get_chg(ticker, period="5d"):
+def fetch_yahoo2(symbol):
     try:
-        hist = yf.Ticker(ticker).history(period=period)["Close"].dropna()
-        if len(hist) < 2:
-            return None
-        return round((hist.iloc[-1] - hist.iloc[0]) / hist.iloc[0] * 100, 2)
+        url = "https://query2.finance.yahoo.com/v8/finance/chart/" + symbol
+        params = {"interval": "1d", "range": "5d"}
+        r = requests.get(url, params=params, headers=HEADERS, timeout=10)
+        data = r.json()
+        closes = data["chart"]["result"][0]["indicators"]["quote"][0]["close"]
+        closes = [c for c in closes if c is not None]
+        if len(closes) < 2:
+            return None, None
+        chg = (closes[-1] - closes[0]) / closes[0] * 100
+        return round(closes[-1], 2), round(chg, 2)
     except:
-        return None
+        return None, None
 
-
-def get_fred(series_id):
-    try:
-        url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
-        r = requests.get(url, timeout=8)
-        for line in reversed(r.text.strip().split("\n")[1:]):
-            parts = line.split(",")
-            if len(parts) == 2 and parts[1].strip() not in (".", ""):
-                return float(parts[1].strip())
-    except:
-        return None
-
+def safe_fetch(symbol):
+    val, chg = fetch_yahoo(symbol)
+    if val is None:
+        val, chg = fetch_yahoo2(symbol)
+    return val, chg
 
 def clamp(v, lo, hi):
     return max(lo, min(hi, v))
-
 
 def scale(v, bad, good):
     if v is None:
@@ -62,97 +67,90 @@ def scale(v, bad, good):
         return 5
     return round(clamp((v - bad) / (good - bad) * 10, 0, 10), 1)
 
-
 def collect():
     raw = {}
+    print("📡 데이터 수집 시작...")
 
-    # 유동성
-    raw["TNX"] = safe_get("^TNX")
-    raw["TNX_chg"] = get_chg("^TNX")
-    raw["DXY"] = safe_get("DX-Y.NYB")
-    raw["DXY_chg"] = get_chg("DX-Y.NYB")
-    raw["HYG_chg"] = get_chg("HYG")
-    raw["TLT_chg"] = get_chg("TLT")
+    raw["TNX"], raw["TNX_chg"]       = safe_fetch("^TNX")
+    raw["DXY"], raw["DXY_chg"]       = safe_fetch("DX-Y.NYB")
+    raw["HYG"], raw["HYG_chg"]       = safe_fetch("HYG")
+    raw["TLT"], raw["TLT_chg"]       = safe_fetch("TLT")
+    raw["OIL"], raw["OIL_chg"]       = safe_fetch("CL=F")
+    raw["BDRY"], raw["BDRY_chg"]     = safe_fetch("BDRY")
+    raw["SOXX"], raw["SOXX_chg"]     = safe_fetch("SOXX")
+    raw["VIX"], raw["VIX_chg"]       = safe_fetch("^VIX")
+    raw["SPX"], raw["SPX_chg"]       = safe_fetch("^GSPC")
+    raw["NDX"], raw["NDX_chg"]       = safe_fetch("^IXIC")
+    raw["KOSPI"], raw["KOSPI_chg"]   = safe_fetch("^KS11")
+    raw["USDKRW"], raw["USDKRW_chg"] = safe_fetch("USDKRW=X")
+    raw["EWY"], raw["EWY_chg"]       = safe_fetch("EWY")
+    raw["ARKK"], raw["ARKK_chg"]     = safe_fetch("ARKK")
+    raw["GOLD"], raw["GOLD_chg"]     = safe_fetch("GC=F")
 
-    # 공급망
-    raw["OIL"] = safe_get("CL=F")
-    raw["OIL_chg"] = get_chg("CL=F")
-    raw["BDRY_chg"] = get_chg("BDRY")
-    raw["SOXX_chg"] = get_chg("SOXX")
+    print(f"  VIX={raw['VIX']}, OIL={raw['OIL']}, TNX={raw['TNX']}, NDX_chg={raw['NDX_chg']}")
 
-    # 심리
-    raw["VIX"] = safe_get("^VIX")
-    raw["SPX_chg"] = get_chg("^GSPC")
-    raw["NDX_chg"] = get_chg("^IXIC")
-    raw["KOSPI_chg"] = get_chg("^KS11")
-    raw["USDKRW"] = safe_get("USDKRW=X")
-    raw["USDKRW_chg"] = get_chg("USDKRW=X")
-    raw["EWY_chg"] = get_chg("EWY")
-    raw["ARKK_chg"] = get_chg("ARKK")
-
-    # 점수 변환
     sc = {}
-    sc["rate"]       = int(round(scale(raw["TNX_chg"],  1.5, -1.5)))
-    sc["dollar"]     = int(round(scale(raw["DXY_chg"],  2.0, -2.0)))
-    sc["credit"]     = int(round(scale(raw["HYG_chg"],  -3.0, 2.0)))
-    sc["fomc"]       = int(round(scale(raw["TLT_chg"],  -4.0, 3.0)))
-    sc["oil"]        = int(round(scale(raw["OIL_chg"],  10.0, -5.0)))
-    sc["freight"]    = int(round(scale(raw["BDRY_chg"], 15.0, -5.0)))
-    sc["semi"]       = int(round(scale(raw["SOXX_chg"], -10.0, 5.0)))
-    oil_val = raw["OIL"] or 75
-    sc["chokepoint"] = int(round(scale(oil_val,         110.0, 65.0)))
-    tnx_val = raw["TNX"] or 4.5
-    sc["cb"]         = int(round(scale(tnx_val,         5.5, 3.0)))
-    gold_chg = get_chg("GC=F") or 0
-    sc["fiscal"]     = int(round(scale(gold_chg,        5.0, -2.0)))
-    dxy_chg = raw["DXY_chg"] or 0
-    oil_chg = raw["OIL_chg"] or 0
-    sc["tariff"]     = int(round(scale((dxy_chg + oil_chg) / 2, 5.0, -3.0)))
-    ndx_chg = raw["NDX_chg"] or 0
-    spx_chg = raw["SPX_chg"] or 0
-    sc["reg"]        = int(round(scale(ndx_chg - spx_chg, -3.0, 3.0)))
-    vix = raw["VIX"] or 20
-    sc["vix"]        = int(round(scale(vix,              35.0, 15.0)))
-    ewy_chg = raw["EWY_chg"] or 0
-    usdkrw_chg = raw["USDKRW_chg"] or 0
-    sc["foreign"]    = int(round(scale(ewy_chg - usdkrw_chg * 0.5, -5.0, 5.0)))
-    arkk_chg = raw["ARKK_chg"] or 0
-    sc["retail"]     = int(round(scale(arkk_chg,         8.0, -3.0)))
-    sc["narrative"]  = int(round(scale(ndx_chg,          8.0, -2.0)))
+    sc["rate"]       = int(round(scale(raw["TNX_chg"],    1.5,  -1.5)))
+    sc["dollar"]     = int(round(scale(raw["DXY_chg"],    2.0,  -2.0)))
+    sc["credit"]     = int(round(scale(raw["HYG_chg"],   -3.0,   2.0)))
+    sc["fomc"]       = int(round(scale(raw["TLT_chg"],   -4.0,   3.0)))
+    sc["oil"]        = int(round(scale(raw["OIL_chg"],   10.0,  -5.0)))
+    sc["freight"]    = int(round(scale(raw["BDRY_chg"],  15.0,  -5.0)))
+    sc["semi"]       = int(round(scale(raw["SOXX_chg"], -10.0,   5.0)))
+    oil_val          = raw["OIL"] or 75
+    sc["chokepoint"] = int(round(scale(oil_val,          110.0,  65.0)))
+    tnx_val          = raw["TNX"] or 4.5
+    sc["cb"]         = int(round(scale(tnx_val,            5.5,   3.0)))
+    sc["fiscal"]     = int(round(scale(raw["GOLD_chg"],    5.0,  -2.0)))
+    dxy_c            = raw["DXY_chg"] or 0
+    oil_c            = raw["OIL_chg"] or 0
+    sc["tariff"]     = int(round(scale((dxy_c + oil_c)/2,  5.0,  -3.0)))
+    ndx_c            = raw["NDX_chg"] or 0
+    spx_c            = raw["SPX_chg"] or 0
+    sc["reg"]        = int(round(scale(ndx_c - spx_c,     -3.0,   3.0)))
+    vix              = raw["VIX"] or 20
+    sc["vix"]        = int(round(scale(vix,               35.0,  15.0)))
+    ewy_c            = raw["EWY_chg"] or 0
+    usd_c            = raw["USDKRW_chg"] or 0
+    sc["foreign"]    = int(round(scale(ewy_c - usd_c*0.5, -5.0,   5.0)))
+    sc["retail"]     = int(round(scale(raw["ARKK_chg"],    8.0,  -3.0)))
+    sc["narrative"]  = int(round(scale(ndx_c,              8.0,  -2.0)))
 
-    # 상황 자동 감지
     situation = "normal"
-    if (vix or 20) > 28 and (oil_chg or 0) > 5:
+    if vix > 28 and oil_c > 5:
         situation = "war"
-    elif (raw["TNX_chg"] or 0) > 0.8 or (tnx_val or 4.5) > 5.0:
+    elif (raw["TNX_chg"] or 0) > 0.8 or tnx_val > 5.0:
         situation = "policy"
-    elif (vix or 20) > 35:
+    elif vix > 35:
         situation = "pandemic"
-    elif ndx_chg > 3 and (vix or 20) < 20:
+    elif ndx_c > 3 and vix < 20:
         situation = "tech"
+
+    collected = sum(1 for k in ["VIX","OIL","TNX","NDX"] if raw.get(k) is not None)
+    print(f"  수집 {collected}/4, 상황={situation}, 점수샘플={sc}")
 
     return {
         "updated": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "situation": situation,
+        "collected": collected,
         "scores": sc,
         "raw": {
-            "vix":        round(raw["VIX"] or 0, 2),
-            "spx_chg":    round(raw["SPX_chg"] or 0, 2),
-            "ndx_chg":    round(raw["NDX_chg"] or 0, 2),
-            "kospi_chg":  round(raw["KOSPI_chg"] or 0, 2),
-            "usdkrw":     round(raw["USDKRW"] or 0, 2),
-            "usdkrw_chg": round(raw["USDKRW_chg"] or 0, 2),
-            "oil":        round(raw["OIL"] or 0, 2),
-            "oil_chg":    round(raw["OIL_chg"] or 0, 2),
-            "tnx":        round(raw["TNX"] or 0, 2),
-            "tnx_chg":    round(raw["TNX_chg"] or 0, 2),
-            "dxy":        round(raw["DXY"] or 0, 2),
-            "dxy_chg":    round(raw["DXY_chg"] or 0, 2),
-            "soxx_chg":   round(raw["SOXX_chg"] or 0, 2),
-            "ewy_chg":    round(raw["EWY_chg"] or 0, 2),
+            "vix":        raw["VIX"] or 0,
+            "spx_chg":    raw["SPX_chg"] or 0,
+            "ndx_chg":    raw["NDX_chg"] or 0,
+            "kospi_chg":  raw["KOSPI_chg"] or 0,
+            "usdkrw":     raw["USDKRW"] or 0,
+            "usdkrw_chg": raw["USDKRW_chg"] or 0,
+            "oil":        raw["OIL"] or 0,
+            "oil_chg":    raw["OIL_chg"] or 0,
+            "tnx":        raw["TNX"] or 0,
+            "tnx_chg":    raw["TNX_chg"] or 0,
+            "dxy":        raw["DXY"] or 0,
+            "dxy_chg":    raw["DXY_chg"] or 0,
+            "soxx_chg":   raw["SOXX_chg"] or 0,
+            "ewy_chg":    raw["EWY_chg"] or 0,
         }
     }
-
 
 @app.route("/api/data")
 def api_data():
@@ -167,12 +165,18 @@ def api_data():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route("/api/test")
+def api_test():
+    results = {}
+    for sym in ["^VIX", "^GSPC", "CL=F", "^TNX", "DX-Y.NYB", "^KS11", "USDKRW=X"]:
+        val, chg = safe_fetch(sym)
+        results[sym] = {"val": val, "chg": chg}
+    return jsonify(results)
 
 @app.route("/")
 def index():
     return send_from_directory("static", "index.html")
 
-
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=port, debug=False)
