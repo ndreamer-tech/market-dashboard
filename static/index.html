@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>시장 신호 대시보드</title>
+<style>
+  :root {
+    --bg: #f8f7f4;
+    --bg2: #f0efe9;
+    --card: #ffffff;
+    --border: rgba(0,0,0,0.1);
+    --border2: rgba(0,0,0,0.18);
+    --text: #1a1a1a;
+    --text2: #666;
+    --text3: #999;
+    --red: #e24b4a; --red-bg: #fcebeb; --red-dark: #791f1f;
+    --amber: #ef9f27; --amber-bg: #faeeda; --amber-dark: #633806;
+    --green: #1d9e75; --green-bg: #eaf3de; --green-dark: #27500a;
+    --purple: #7f77dd; --purple-bg: #eeedfe; --purple-dark: #3c3489;
+    --blue: #378add; --blue-bg: #e6f1fb; --blue-dark: #0c447c;
+    --radius: 12px; --radius-sm: 8px; --radius-pill: 999px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:#1a1a18;--bg2:#222220;--card:#2a2a28;
+      --border:rgba(255,255,255,0.1);--border2:rgba(255,255,255,0.18);
+      --text:#f0efe9;--text2:#aaa;--text3:#666;
+      --red-bg:#3a1515;--amber-bg:#3a2c10;--green-bg:#0f2d1a;--purple-bg:#1e1c3a;--blue-bg:#0d1f35;
+    }
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;min-height:100vh}
+  .container{max-width:800px;margin:0 auto;padding:20px 16px 60px}
+
+  /* header */
+  .header{display:flex;align-items:center;gap:12px;margin-bottom:24px}
+  .header h1{font-size:18px;font-weight:600}
+  .header-right{margin-left:auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .ts-badge{font-size:11px;color:var(--text2);background:var(--bg2);border:0.5px solid var(--border);padding:3px 10px;border-radius:var(--radius-pill)}
+  .refresh-btn{padding:5px 12px;border-radius:var(--radius-pill);border:0.5px solid var(--border2);background:transparent;color:var(--text2);font-size:12px;cursor:pointer;transition:all .15s}
+  .refresh-btn:hover{background:var(--bg2)}
+  .refresh-btn.loading{opacity:.5;pointer-events:none}
+
+  /* loading overlay */
+  .loading-overlay{position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;z-index:100;transition:opacity .4s}
+  .loading-overlay.hidden{opacity:0;pointer-events:none}
+  .spinner{width:36px;height:36px;border:3px solid var(--border);border-top-color:var(--green);border-radius:50%;animation:spin .8s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .loading-text{font-size:13px;color:var(--text2)}
+
+  /* error */
+  .error-box{background:var(--red-bg);border:0.5px solid var(--red);border-radius:var(--radius);padding:16px;margin-bottom:16px;font-size:13px;color:var(--red-dark);display:none}
+
+  /* signal */
+  .signal-card{background:var(--card);border:0.5px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:12px;display:flex;align-items:center;gap:16px}
+  .lights{display:flex;gap:10px}
+  .light{width:30px;height:30px;border-radius:50%;opacity:.15;transition:opacity .4s,box-shadow .4s}
+  .light.on{opacity:1}
+  .light-r{background:var(--red)}.light-a{background:var(--amber)}.light-g{background:var(--green)}
+  .light-r.on{box-shadow:0 0 12px var(--red)}.light-a.on{box-shadow:0 0 12px var(--amber)}.light-g.on{box-shadow:0 0 12px var(--green)}
+  .sig-info{flex:1}
+  .sig-title{font-size:18px;font-weight:600;margin-bottom:3px}
+  .sig-sub{font-size:12px;color:var(--text2)}
+  .sig-score{font-size:32px;font-weight:700;transition:color .3s}
+  .bar-wrap{height:6px;background:var(--bg2);border-radius:var(--radius-pill);overflow:hidden;margin-bottom:16px}
+  .bar-fill{height:100%;border-radius:var(--radius-pill);transition:width .6s cubic-bezier(.4,0,.2,1),background .3s}
+
+  /* sit selector */
+  .sit-row{display:flex;align-items:center;gap:6px;margin-bottom:16px;flex-wrap:wrap}
+  .sit-label{font-size:11px;color:var(--text2);font-weight:500}
+  .stab{padding:4px 12px;border-radius:var(--radius-pill);border:0.5px solid var(--border2);font-size:11px;font-weight:500;cursor:pointer;background:transparent;color:var(--text2);transition:all .15s}
+  .stab.active{background:var(--blue-bg);color:var(--blue-dark);border-color:var(--blue)}
+  .auto-pill{font-size:10px;padding:2px 8px;border-radius:var(--radius-pill);background:var(--purple-bg);color:var(--purple-dark);font-weight:500}
+
+  /* alert box */
+  .alert-box{border-radius:var(--radius);padding:12px 14px;margin-bottom:16px;font-size:12px;line-height:1.7;border:0.5px solid}
+  .alert-green{background:var(--green-bg);border-color:var(--green);color:var(--green-dark)}
+  .alert-amber{background:var(--amber-bg);border-color:var(--amber);color:var(--amber-dark)}
+  .alert-red{background:var(--red-bg);border-color:var(--red);color:var(--red-dark)}
+
+  /* axis grid */
+  .axis-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px}
+  @media(max-width:480px){.axis-grid{grid-template-columns:1fr}}
+  .acard{background:var(--card);border:0.5px solid var(--border);border-radius:var(--radius);padding:14px}
+  .acard-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+  .acard-name{font-size:13px;font-weight:600}
+  .apill{font-size:10px;font-weight:600;padding:2px 9px;border-radius:var(--radius-pill)}
+  .pr{background:var(--red-bg);color:var(--red-dark)}.pa{background:var(--amber-bg);color:var(--amber-dark)}.pg{background:var(--green-bg);color:var(--green-dark)}
+  .irow{display:flex;align-items:center;gap:7px;padding:5px 0;border-bottom:0.5px solid var(--border)}
+  .irow:last-child{border-bottom:none}
+  .idot{width:7px;height:7px;border-radius:50%;flex-shrink:0;transition:background .3s}
+  .ilabel{flex:1;font-size:12px;color:var(--text2)}
+  .imbar{width:52px;height:4px;background:var(--bg2);border-radius:2px;overflow:hidden;flex-shrink:0}
+  .imfill{height:100%;border-radius:2px;transition:width .5s,background .3s}
+  .inum{font-size:12px;font-weight:600;min-width:22px;text-align:right;transition:color .3s}
+
+  /* raw data */
+  .raw-section{background:var(--card);border:0.5px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:16px}
+  .raw-title{font-size:12px;font-weight:600;color:var(--text2);margin-bottom:10px;text-transform:uppercase;letter-spacing:.06em}
+  .raw-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}
+  .raw-item{background:var(--bg2);border-radius:var(--radius-sm);padding:8px 10px}
+  .raw-item-label{font-size:10px;color:var(--text3);margin-bottom:2px}
+  .raw-item-val{font-size:14px;font-weight:600}
+  .raw-item-chg{font-size:11px;margin-top:1px}
+  .pos{color:var(--green)}.neg{color:var(--red)}.neu{color:var(--text2)}
+
+  /* action */
+  .act-card{background:var(--card);border:0.5px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:16px}
+  .act-title{font-size:12px;font-weight:600;color:var(--text2);margin-bottom:10px;text-transform:uppercase;letter-spacing:.06em}
+  .act-row{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  .abtn{padding:12px 8px;border-radius:var(--radius-sm);border:0.5px solid var(--border);text-align:center;background:var(--bg2);transition:all .2s}
+  .abtn.as{background:var(--red-bg);border-color:var(--red)}.abtn.ah{background:var(--amber-bg);border-color:var(--amber)}.abtn.ab{background:var(--green-bg);border-color:var(--green)}
+  .aico{font-size:18px;margin-bottom:4px}.albl{font-size:12px;font-weight:600;color:var(--text2)}.asub{font-size:10px;color:var(--text3);margin-top:3px}
+
+  /* tabs */
+  .tabs{display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap}
+  .tab{padding:6px 14px;border-radius:var(--radius-pill);border:0.5px solid var(--border2);font-size:12px;font-weight:500;cursor:pointer;background:transparent;color:var(--text2)}
+  .tab.active{background:var(--text);color:var(--bg);border-color:var(--text)}
+
+  /* noise */
+  .nb{border-left:3px solid var(--border2);background:var(--bg2);border-radius:0 var(--radius-sm) var(--radius-sm) 0;padding:10px 12px;margin-bottom:6px;cursor:pointer}
+  .nb.chk{border-left-color:var(--purple)}
+  .nt{font-size:12px;font-weight:600;margin-bottom:2px}
+  .ntip{font-size:11px;color:var(--purple)}
+
+  /* phase */
+  .ph-row{display:flex;gap:8px;margin-bottom:10px;align-items:flex-start}
+  .ph-tag{font-size:10px;font-weight:600;padding:3px 8px;border-radius:var(--radius-pill);white-space:nowrap;flex-shrink:0;margin-top:1px}
+  .phs{background:var(--red-bg);color:var(--red-dark)}.phw{background:var(--amber-bg);color:var(--amber-dark)}.php{background:var(--blue-bg);color:var(--blue-dark)}.phb{background:var(--green-bg);color:var(--green-dark)}.phe{background:var(--purple-bg);color:var(--purple-dark)}
+  .ph-desc{font-size:12px;color:var(--text2);line-height:1.6}
+
+  .sec{font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--text2);margin-bottom:10px;margin-top:4px}
+  .info-card{background:var(--bg2);border-radius:var(--radius);padding:12px 14px;font-size:12px;color:var(--text2);line-height:1.8;margin-top:10px}
+</style>
+</head>
+<body>
+
+<!-- Loading -->
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="spinner"></div>
+  <div class="loading-text" id="loadingText">시장 데이터 수집 중…</div>
+</div>
+
+<div class="container">
+  <div class="header">
+    <div>🔆</div>
+    <h1>시장 신호 대시보드</h1>
+    <div class="header-right">
+      <div class="ts-badge" id="tsBadge">—</div>
+      <button class="refresh-btn" id="refreshBtn" onclick="loadData()">↺ 새로고침</button>
+    </div>
+  </div>
+
+  <div class="error-box" id="errorBox"></div>
+
+  <!-- TABS -->
+  <div class="tabs">
+    <button class="tab active" onclick="setTab('dash',this)">대시보드</button>
+    <button class="tab" onclick="setTab('raw',this)">원시 데이터</button>
+    <button class="tab" onclick="setTab('noise',this)">노이즈 판단</button>
+    <button class="tab" onclick="setTab('phases',this)">전이 단계</button>
+  </div>
+
+  <!-- DASHBOARD -->
+  <div id="tab-dash">
+    <div class="signal-card">
+      <div class="lights">
+        <div class="light light-r" id="sl-r"></div>
+        <div class="light light-a" id="sl-a"></div>
+        <div class="light light-g" id="sl-g"></div>
+      </div>
+      <div class="sig-info">
+        <div class="sig-title" id="sigT">—</div>
+        <div class="sig-sub" id="sigS">데이터 로딩 중…</div>
+      </div>
+      <div class="sig-score" id="sigSc">—</div>
+    </div>
+    <div class="bar-wrap"><div class="bar-fill" id="mBar" style="width:0%"></div></div>
+
+    <div class="sit-row">
+      <span class="sit-label">지배 축:</span>
+      <button class="stab" onclick="setSit('normal',this)">평상시</button>
+      <button class="stab" onclick="setSit('war',this)">전쟁</button>
+      <button class="stab" onclick="setSit('pandemic',this)">팬데믹</button>
+      <button class="stab" onclick="setSit('policy',this)">긴축</button>
+      <button class="stab" onclick="setSit('tech',this)">기술상승</button>
+      <span class="auto-pill" id="autoPill" style="display:none">자동감지</span>
+    </div>
+
+    <div id="alertBox"></div>
+    <div class="axis-grid" id="axisGrid"></div>
+
+    <div class="act-card">
+      <div class="act-title">투자 판단</div>
+      <div class="act-row">
+        <div class="abtn" id="btn-s"><div class="aico">▼</div><div class="albl">비중 축소</div><div class="asub" id="sub-s">—</div></div>
+        <div class="abtn" id="btn-h"><div class="aico">◼</div><div class="albl">관망·유지</div><div class="asub" id="sub-h">—</div></div>
+        <div class="abtn" id="btn-b"><div class="aico">▲</div><div class="albl">비중 확대</div><div class="asub" id="sub-b">—</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RAW DATA -->
+  <div id="tab-raw" style="display:none">
+    <div class="raw-section">
+      <div class="raw-title">수집된 원시 지표</div>
+      <div class="raw-grid" id="rawGrid"></div>
+    </div>
+  </div>
+
+  <!-- NOISE -->
+  <div id="tab-noise" style="display:none">
+    <div class="sec">노이즈 vs 구조 체크리스트</div>
+    <div id="noiseItems"></div>
+    <div class="info-card" style="margin-top:12px">
+      <strong>악재 내성 신호 5가지</strong><br>
+      ① 새 악재인데 낙폭 제한 → 노이즈 할인 시작<br>
+      ② VIX 전고점 미갱신 → 관리 가능 위험으로 전환<br>
+      ③ 유가만 반응, 주식 버팀 → 주식이 이미 소화<br>
+      ④ 개인 매수인데 지수 하락 → 외국인 아직 이탈 중<br>
+      ⑤ 한국: 환율 반응 약화 → 위험회피 강도 약화
+    </div>
+  </div>
+
+  <!-- PHASES -->
+  <div id="tab-phases" style="display:none">
+    <div class="sec">공급망 충격 전이 단계</div>
+    <div id="phaseItems"></div>
+    <div class="info-card">
+      가격(1차)은 빠르지만 위험 · <strong>수급(2차)이 최적 진입</strong> · 실적(3차) 이후 늦음<br>
+      정책 개입 시 기존 구조 뒤집힐 수 있음 · 구조 재편(5차)이 가장 큰 수익 구간
+    </div>
+  </div>
+</div>
+
+<script>
+const AXES=[
+  {id:'liquidity',name:'💧 유동성 축',q:'돈이 쉬운가, 어려운가?',
+   inds:[{k:'rate',l:'금리 방향'},{k:'dollar',l:'달러 강약'},{k:'credit',l:'신용 스프레드'},{k:'fomc',l:'FOMC 톤'}]},
+  {id:'supply',name:'⚙️ 공급망 축',q:'실제 공급이 막히는가?',
+   inds:[{k:'oil',l:'유가 방향'},{k:'freight',l:'해운 운임'},{k:'semi',l:'반도체 수급'},{k:'chokepoint',l:'지정학 리스크'}]},
+  {id:'policy',name:'⚖️ 정책 축',q:'판을 누가 어떻게 짜는가?',
+   inds:[{k:'cb',l:'중앙은행 정책'},{k:'fiscal',l:'재정·보조금'},{k:'tariff',l:'관세·제재'},{k:'reg',l:'규제 방향'}]},
+  {id:'psychology',name:'🧠 심리 축',q:'시장이 어떤 감정으로 보는가?',
+   inds:[{k:'vix',l:'VIX 수준'},{k:'foreign',l:'외국인 수급'},{k:'retail',l:'개인 과열도'},{k:'narrative',l:'서사 과열'}]}
+];
+const SITS={
+  normal:{w:{liquidity:30,supply:20,policy:25,psychology:25},note:'유동성·정책 지배. 실적·금리·달러 중심.'},
+  war:{w:{liquidity:15,supply:40,policy:20,psychology:25},note:'공급망·심리 지배. 유가·VIX·운임 중심.'},
+  pandemic:{w:{liquidity:35,supply:25,policy:25,psychology:15},note:'유동성·정책 지배. 연준·재정 개입 중심.'},
+  policy:{w:{liquidity:40,supply:15,policy:30,psychology:15},note:'유동성 압도. 금리·달러·FOMC 중심.'},
+  tech:{w:{liquidity:20,supply:20,policy:15,psychology:45},note:'심리·서사 지배. 수급·기관유입 중심.'}
+};
+
+let scores={}, curSit='normal', rawData={};
+
+function dc(v){return v<=3?'#e24b4a':v<=6?'#ef9f27':'#1d9e75';}
+function axSc(id){const a=AXES.find(x=>x.id===id);return Math.round(a.inds.reduce((s,i)=>s+(scores[i.k]||5),0)/a.inds.length*10);}
+function totSc(){
+  const w=SITS[curSit].w;let s=0,t=0;
+  AXES.forEach(a=>{s+=axSc(a.id)*w[a.id];t+=w[a.id]*10;});
+  return Math.round(s/t*100);
+}
+function sigCol(sc){return sc<=35?'r':sc<=60?'a':'g';}
+function pcls(sc){return sc<=35?'pr':sc<=60?'pa':'pg';}
+function plbl(sc){return sc<=35?'위험':sc<=60?'중립':'안전';}
+
+function update(){
+  const sc=totSc(),col=sigCol(sc);
+  ['r','a','g'].forEach(c=>{const el=document.getElementById('sl-'+c);if(el)el.classList.toggle('on',c===col);});
+  const TT={r:'위험 — 비중 축소',a:'중립 — 관망·선별',g:'기회 — 비중 확대'};
+  const SS={r:'구조 충격 or 수급 이탈. 현금 비중 우선.',a:'방향 불명확. 탐색 또는 유지.',g:'구조+수급 정렬. 핵심 진입 구간.'};
+  setText('sigT',TT[col]);setText('sigS',SS[col]);
+  const se=document.getElementById('sigSc');if(se){se.textContent=sc+'pt';se.style.color=dc(sc/10);}
+  const b=document.getElementById('mBar');if(b){b.style.width=sc+'%';b.style.background={r:'#e24b4a',a:'#ef9f27',g:'#1d9e75'}[col];}
+  document.getElementById('btn-s').className='abtn'+(col==='r'?' as':'');
+  document.getElementById('btn-h').className='abtn'+(col==='a'?' ah':'');
+  document.getElementById('btn-b').className='abtn'+(col==='g'?' ab':'');
+  const ss={sell:{r:'구조 충격 확인',a:'일부 헤지',g:'추격 자제'},hold:{r:'반등 확인 전 대기',a:'탐색 진입 준비',g:'보유 유지'},buy:{r:'저가매수 금지',a:'소량 탐색 가능',g:'수급 전환 확인 후'}};
+  setText('sub-s',ss.sell[col]);setText('sub-h',ss.hold[col]);setText('sub-b',ss.buy[col]);
+
+  // alert
+  const alerts=[];
+  if((scores.retail||5)<=2) alerts.push({t:'⚠️ 개인 과열 높음',d:'추격 매수 자제. 뉴스 보고 뒤늦게 진입하는 개인 자금이 많은 상태.',cls:'alert-amber'});
+  if((scores.narrative||5)<=3) alerts.push({t:'⚠️ 서사 과열',d:'테마가 달아올랐습니다. 신규 풀매수보다 분할 접근 권장.',cls:'alert-amber'});
+  if((scores.foreign||5)>=9) alerts.push({t:'✅ 외국인 수급 강함',d:'외국인이 강하게 들어오는 구간. 한국 시장에 긍정적.',cls:'alert-green'});
+  if((scores.oil||5)>=9) alerts.push({t:'✅ 유가 급락',d:'에너지 비용 부담 완화. 소비·운송·화학 업종 수혜.',cls:'alert-green'});
+  if((scores.vix||5)>=8) alerts.push({t:'✅ VIX 안정',d:'공포 지수 낮음. 위험선호 분위기 유지.',cls:'alert-green'});
+  if((scores.vix||5)<=3) alerts.push({t:'🔴 VIX 급등',d:'극단적 공포 구간. 패닉셀 발생 가능. 현금 비중 높여야.',cls:'alert-red'});
+  const ab=document.getElementById('alertBox');
+  if(ab) ab.innerHTML=alerts.map(a=>`<div class="alert-box ${a.cls}"><strong>${a.t}</strong> — ${a.d}</div>`).join('');
+
+  renderAxis();
+}
+
+function renderAxis(){
+  const c=document.getElementById('axisGrid');if(!c)return;c.innerHTML='';
+  AXES.forEach(a=>{
+    const sc=axSc(a.id);
+    const rows=a.inds.map(i=>{
+      const v=scores[i.k]||5,col=dc(v);
+      return `<div class="irow">
+        <div class="idot" style="background:${col}"></div>
+        <div class="ilabel">${i.l}</div>
+        <div class="imbar"><div class="imfill" style="width:${v*10}%;background:${col}"></div></div>
+        <div class="inum" style="color:${col}">${v}</div>
+      </div>`;
+    }).join('');
+    c.innerHTML+=`<div class="acard">
+      <div class="acard-head"><div class="acard-name">${a.name}</div><div class="apill ${pcls(sc)}">${plbl(sc)} ${sc}pt</div></div>
+      ${rows}</div>`;
+  });
+}
+
+function renderRaw(raw){
+  const items=[
+    {l:'VIX',v:raw.vix,chg:null,fmt:''},
+    {l:'S&P 500',v:null,chg:raw.spx_chg,fmt:'%'},
+    {l:'나스닥',v:null,chg:raw.ndx_chg,fmt:'%'},
+    {l:'코스피',v:null,chg:raw.kospi_chg,fmt:'%'},
+    {l:'원/달러',v:raw.usdkrw,chg:raw.usdkrw_chg,fmt:'원'},
+    {l:'WTI 원유',v:raw.oil,chg:raw.oil_chg,fmt:'$'},
+    {l:'10년물 금리',v:raw.tnx,chg:raw.tnx_chg,fmt:'%'},
+    {l:'달러 인덱스',v:raw.dxy,chg:raw.dxy_chg,fmt:''},
+    {l:'반도체 ETF',v:null,chg:raw.soxx_chg,fmt:'%'},
+    {l:'EWY (외국인)',v:null,chg:raw.ewy_chg,fmt:'%'},
+  ];
+  const g=document.getElementById('rawGrid');if(!g)return;
+  g.innerHTML=items.map(it=>{
+    const valStr=it.v!=null?`<div class="raw-item-val">${it.v.toLocaleString()}${it.fmt==='%'?'%':it.fmt==='$'?'$':'원'==='원'&&it.fmt==='원'?'':''}</div>`:
+      it.chg!=null?`<div class="raw-item-val ${it.chg>=0?'pos':'neg'}">${it.chg>=0?'+':''}${it.chg.toFixed(2)}%</div>`:'<div class="raw-item-val neu">—</div>';
+    const chgStr=it.v!=null&&it.chg!=null?`<div class="raw-item-chg ${it.chg>=0?'pos':'neg'}">${it.chg>=0?'+':''}${it.chg.toFixed(2)}%</div>`:'';
+    return `<div class="raw-item"><div class="raw-item-label">${it.l}</div>${valStr}${chgStr}</div>`;
+  }).join('');
+}
+
+function renderNoise(){
+  const items=[
+    {t:'이 사건이 없어도 시장 방향이 유지되는가?',tip:'YES → 노이즈'},
+    {t:'유가·VIX·운임이 동시에 반응하는가?',tip:'동시 → 구조 충격'},
+    {t:'외국인·기관이 실제로 이동하는가?',tip:'이동 → 진짜 트리거'},
+    {t:'정책 개입 가능성이 있는가?',tip:'개입 → 방향 변화 가능'},
+    {t:'같은 뉴스에 시장 반응이 줄어드는가?',tip:'줄면 → 악재 내성 = 재진입 신호'},
+    {t:'기관이 먼저, 개인이 뒤따르는가?',tip:'기관 선행 → 구조적 움직임'},
+  ];
+  const c=document.getElementById('noiseItems');if(!c)return;
+  c.innerHTML=items.map((it,i)=>`
+    <div class="nb" id="nb${i}" onclick="togN(${i})">
+      <div style="display:flex;align-items:center;gap:8px">
+        <div style="width:15px;height:15px;border-radius:4px;border:1px solid #aaa;display:flex;align-items:center;justify-content:center;font-size:10px;color:#fff;flex-shrink:0" id="cb${i}"></div>
+        <div><div class="nt">${it.t}</div><div class="ntip">${it.tip}</div></div>
+      </div></div>`).join('');
+}
+const nSet=new Set();
+function togN(i){
+  const cb=document.getElementById('cb'+i),box=document.getElementById('nb'+i);
+  if(nSet.has(i)){nSet.delete(i);cb.style.background='transparent';cb.textContent='';box.classList.remove('chk');}
+  else{nSet.add(i);cb.style.background='#7f77dd';cb.textContent='✓';box.classList.add('chk');}
+}
+
+function renderPhases(){
+  const phases=[
+    {cls:'phs',lbl:'1단계 가격',time:'즉시~1주',act:'비중 축소 / 추격 금지',desc:'원자재·운임 급등. 방향은 맞지만 과장 가능. 이미 대응했으면 유지, 못했으면 추격 금지.'},
+    {cls:'phw',lbl:'2단계 수급',time:'1~4주',act:'핵심 진입 (최적)',desc:'기관·CTA 유입 시작. 거래대금 증가 + 섹터 확산 확인 후 진입. 리스크 대비 효율 최고.'},
+    {cls:'php',lbl:'3단계 실적',time:'1~3개월',act:'선별 투자',desc:'비용·매출 변화 실제 반영. 업종 전체보다 개별 종목 선택. 강한 종목 분리 시작.'},
+    {cls:'phb',lbl:'4단계 정책',time:'2~6개월',act:'새 사이클 탐색',desc:'정부·중앙은행 개입. 기존 테마 종료 + 새 테마 시작. 정책 수혜 섹터로 이동.'},
+    {cls:'phe',lbl:'5단계 구조',time:'6개월~수년',act:'장기 투자',desc:'공급망·산업 구조 자체 변화. 가장 큰 수익 구간. 신규 대량 진입은 분할 실현 시점.'},
+  ];
+  const c=document.getElementById('phaseItems');if(!c)return;
+  c.innerHTML=phases.map(p=>`
+    <div class="ph-row">
+      <div class="ph-tag ${p.cls}">${p.lbl}</div>
+      <div class="ph-desc"><span style="font-size:11px;opacity:.6">${p.time} · </span><strong>${p.act}</strong><br>${p.desc}</div>
+    </div>`).join('');
+}
+
+function setText(id,txt){const el=document.getElementById(id);if(el)el.textContent=txt;}
+
+function setSit(sit,el){
+  curSit=sit;
+  document.querySelectorAll('.stab').forEach(t=>t.classList.remove('active'));
+  if(el)el.classList.add('active');
+  update();
+}
+
+function setTab(tab,el){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  if(el)el.classList.add('active');
+  ['dash','raw','noise','phases'].forEach(t=>{
+    const d=document.getElementById('tab-'+t);if(d)d.style.display=t===tab?'':'none';
+  });
+}
+
+async function loadData(){
+  const btn=document.getElementById('refreshBtn');
+  if(btn){btn.classList.add('loading');btn.textContent='수집 중…';}
+  document.getElementById('errorBox').style.display='none';
+
+  try{
+    const res=await fetch('/api/data');
+    if(!res.ok) throw new Error('서버 오류 '+res.status);
+    const data=await res.json();
+    if(data.error) throw new Error(data.error);
+
+    scores=data.scores||{};
+    rawData=data.raw||{};
+
+    // 상황 자동 세팅
+    if(data.situation){
+      curSit=data.situation;
+      document.querySelectorAll('.stab').forEach(t=>t.classList.remove('active'));
+      const map={normal:0,war:1,pandemic:2,policy:3,tech:4};
+      const tabs=document.querySelectorAll('.stab');
+      if(tabs[map[curSit]])tabs[map[curSit]].classList.add('active');
+      const pill=document.getElementById('autoPill');
+      if(pill){pill.style.display='inline';setTimeout(()=>pill.style.display='none',4000);}
+    }
+    if(data.updated){const b=document.getElementById('tsBadge');if(b)b.textContent=data.updated+' ✅';}
+
+    update();
+    renderRaw(rawData);
+
+    // 로딩 숨김
+    const ov=document.getElementById('loadingOverlay');if(ov)ov.classList.add('hidden');
+  }catch(e){
+    const eb=document.getElementById('errorBox');
+    if(eb){eb.style.display='block';eb.textContent='데이터 수집 실패: '+e.message+' — 잠시 후 새로고침하세요.';}
+    const ov=document.getElementById('loadingOverlay');if(ov)ov.classList.add('hidden');
+  }finally{
+    if(btn){btn.classList.remove('loading');btn.textContent='↺ 새로고침';}
+  }
+}
+
+// init
+renderNoise();
+renderPhases();
+loadData();
+// 10분마다 자동 갱신
+setInterval(loadData, 600000);
+</script>
+</body>
+</html>
